@@ -1,0 +1,3177 @@
+# libraries
+{library('AER')
+  library('conleyreg')
+  library(car)
+  library(corrplot)
+  library('clinUtils')
+  library(dplyr)
+  library('DescTools')
+  library(FactoMineR)
+  library(factoextra)
+  library('geosphere')
+  library(ggplot2)
+  library(haven)
+  library('ivprobit')
+  library('inTextSummaryTable')
+  library('labelled')
+  library(MASS)
+  library(memisc)
+  library('modelsummary')
+  library(nnet)
+  library('pander')
+  library(readxl)
+  library(RDSTK)
+  library('Rchoice')
+  library('regclass')
+  library('sp')
+  library(stringr)
+  library(stargazer)
+  library(tidyr)
+  library(tidyverse)
+  library('tools')
+  library('texreg')
+  library(tidyr)
+  library(zoo)
+  
+  library(dplyr) 
+}
+# functions
+# function(){
+#   
+# }
+
+
+####--------------------------## НАЧАЛЬНЫЕ ШАГИ ##------------------------------####
+# Sys.setlocale("LC_CTYPE", "Russian.UTF-8")
+setwd('D:/Desktop/~диплом~/')
+
+dataG <- read_dta("data/LiTS III.dta"
+                  # , encoding = "Russian.UTF-8"
+                  )
+# var_label(data)
+#This function is needed to find particular variables
+# look_for(dataG, 'migrat')
+dataG$country %>% table()
+
+#####old data#####
+# data_old <- read_dta('data/LITS 2006 data.dta')
+# list <- var_label(data_old)
+# data_old$city
+    ##### data work                ####
+
+#need only former soviet union
+data1 <- dataG[dataG$country %in% # 'Russia',]
+                 c('Azerbaijan', 'Belarus', 'Estonia', 'Georgia',
+                                   'Kazakhstan', 'Kyrgyz Rep.', 'Mongolia', 'Russia',
+                                   'Tajikistan', 'Ukraine', 'Uzbekistan'),]
+{# попытка вылечить названия городов
+# library('stringi')
+# stri_enc_mark(data1$PSU_name)
+# all(stri_enc_isutf8(data1$PSU_name))
+# data1$PSU_name <- stri_encode(data1$PSU_name, "", "UTF-8")
+# sessionInfo()
+# Encoding(data1$country) # <- "en_US.UTF-8"
+}
+
+# look_for(data1, 'q925')
+# (data1$PRq515) 
+#<------------->#to be added  
+#table(data1$PRq306) # land (only 1 not 2,3 matter)
+# data1$q429a #tolerance
+# data1$q920a # parents commies
+# data1$q921a # participation
+# data1$q924a # injury ww2
+# data1$q925a # repression1 ✓
+# data1$q926a_1 # repression2 ✓ - но таких нету
+
+#creating the df's
+
+opros <- {data.frame(data1$country, data1$ID, data1$region_name,
+                    data1$longitude, data1$latitude,
+                    data1$gender_pr,data1$age_pr, data1$q903, data1$q923_ethnicity, data1$q922,
+                    data1$q109_1, data1$q107_1, # 'Education', 'Marriage',
+                    data1$q701, data1$q428,   # enterprenuer and risk
+                    data1$q110_1, data1$q111_1, # father and mother educ
+                    data1$PRq315, data1$PRq316, data1$PRq317, # Place on 10 step wealth ladder from p to r +- 4 yrs
+                    data1$q403, #data1$q423,#trust and wallet
+                    data1$q405a, data1$q405b, data1$q405c, data1$q405d, #trust to family, neighbors, strangers, foreigners
+                    data1$q404a, data1$q404b, data1$q404c, data1$q404d, # trust to president, government/ministers, reggov, locgov
+                    data1$q404f, data1$q404i, data1$q404j, data1$q404k, #trust  to courts, police, banks and finsys, foreign investors
+                    
+                    data1$q925a, data1$q925b, data1$q925c, data1$q925d) # repression1 - presecution before 1989 - yourself, parents/siblings, gradparents, other relatives
+  }
+
+
+#
+    ####making it spatial          ####
+sp.opros <- opros
+coordinates(sp.opros) <- ~ data1.longitude + data1.latitude
+
+
+load('data/GULAGS_v3.RData')
+gulags1 <- transform(gulags, LAT = as.numeric(LONG), LONG = as.numeric(LAT))
+
+#delete ones with missing lat & long
+sp.gulags <- gulags1[is.na(gulags1$LONG) == FALSE,]
+coordinates(sp.gulags) <- ~ LONG + LAT
+
+# coord_men <- data.frame(sp.opros$data1.longitude, sp.opros$data1.latitude)
+# coord_gul <- data.frame(gulags1$LONG, gulags1$LAT)
+# prob_dist <- distm(coord_men, coord_gul)
+# guldist0 <- apply(prob_dist, 1, min)
+
+#counting the distance 
+d <- distm(sp.opros, sp.gulags, fun = distGeo);
+# the distance to the closest gulag
+guldist1 <- apply(d, 1, min)
+guldist2 <- guldist1/1000
+guldist <- guldist2
+hist(guldist,80, xlim = c(0, 120)#, title = 'Number of Gulags in the X proximity'
+     )
+     
+#appending the column of distance                #new_opros0#
+new_opros0 <- cbind(opros, guldist)
+
+# ?distm()
+    ####Naming the columns properly####
+#changing the names of the columns
+colnames(new_opros0) <- {c('Country', 'ID','Region_name',
+                          'LONG', 'LAT',
+                          'Gender', 'Age', 'Height', 'Rus_ethnicity', 'Religion',
+                          'Education', 'Marriage',
+                          'Entrepreneur', 'Riskiness', 
+                          'Educ_father', 'Educ_mother',
+                          'Wealth_now', 'Wealth_past', 'Wealth_fut',
+                          'Trust', #'Wallet_ret_prob',
+                          'trust_family', 'trust_neighbours', 'trust_strangers', 'trust_foreigners',
+                          'trust_president', 'trust_ministry', 'trust_reggov', 'trust_locgov',
+                          'trust_courts', 'trust_police', 'trust_finsys', 'trust_forinv',
+                          'victim_of_repression','vicrepr1','vicrepr2','vicrepr3',
+                          'guldist')}
+
+
+
+#backup data
+# new_opros <- new_opros0
+#fix region names
+new_opros0$Region_name <- str_replace_all(new_opros0$Region_name, " ", "_")
+
+#### railroads####
+load('data/Railroads_Geocoded.RData') #routes.mat
+
+#making matrices of rail stations
+sp.rail_o <- routes.mat
+coordinates(sp.rail_o) <- ~ O_LONG + O_LAT
+sp.rail_d <- routes.mat
+coordinates(sp.rail_d) <- ~ D_LONG + D_LAT
+
+#finding the distances to them
+dist_rail_o <- distm(sp.opros, sp.rail_o, fun = distGeo);
+dist_rail_d <- distm(sp.opros, sp.rail_d, fun = distGeo);
+#finding the closest one
+dist_rail0 <- data.frame(apply(dist_rail_o, 1, min), apply(dist_rail_d, 1, min))
+dist_rail1 <- apply(dist_rail0, 1, min)
+raildist <- dist_rail1/1000
+
+# hist(raildist, 100, xlim = c(0, 120))
+
+#appending 
+new_opros0 <- cbind(new_opros0, raildist)
+#### events of repression ####
+# load('data/eventsClean_v1.RData')
+# events0 <- events[events$ORIGIN_LAT %>% is.nan(),]
+#### gdp per capita variable####
+# gdp <- read.csv('data/gdp per capita.csv')
+# gdp <- data.frame(gdp$CountryName, as.character(gdp$PeriodCode), as.numeric(gdp$Value))
+# gdp <- gdp[gdp$gdp.CountryName %in% c('Azerbaijan', 'Belarus', 'Estonia', 'Georgia','Kazakhstan',
+#                                       'Kyrgyzstan','Tajikistan', 'Ukraine','Uzbekistan'),]
+# colnames(gdp) <- c('Country', 'Year', 'CapGdp')
+# gdp[gdp$Country == 'Kyrgyzstan',]$Country <- 'Kyrgyz Rep.'
+# 
+# gdp_Mongolia <- na.omit(read_xlsx("data/statistic_id727559_gross-domestic-product--gdp--per-capita-in-mongolia-2028.xlsx",sheet = 2))
+# gdp_Mongolia <- cbind(rep('Mongolia', length(gdp_Mongolia$...2)), gdp_Mongolia)
+# colnames(gdp_Mongolia) <- c('Country', 'Year', 'CapGdp')
+# 
+# gdp_Russia <- na.omit(read_xlsx("data/statistic_id263777_gross-domestic-product--gdp--per-capita-in-russia-2028.xlsx",sheet = 2))
+# gdp_Russia <- cbind(rep('Russia', length(gdp_Russia$...2)), gdp_Russia)
+# colnames(gdp_Russia) <- c('Country', 'Year', 'CapGdp')
+# 
+# gdp <- rbind(gdp, gdp_Russia)
+# gdp <- rbind(gdp, gdp_Mongolia)
+# 
+# gdp2016 <- gdp[gdp$Year == '2016',][c(1,3)] # в USD с поправкой на ппс (паритет покупа способ)
+#   
+# new_opros0 <- left_join(new_opros0, gdp2016, by = 'Country')
+
+
+         #### чистим выбросы жестко     ####     
+new_opros_backup <- new_opros0
+new_opros0 <- new_opros_backup[new_opros_backup$Trust > 0,]
+new_opros0 <- {new_opros0[new_opros0$Educ_father > 0 & new_opros0$Educ_mother > 0 & 
+                         new_opros0$Riskiness > 0 & new_opros0$trust_forinv > 0 &
+                         new_opros0$trust_family > 0 & new_opros0$trust_neighbours > 0 &
+                         new_opros0$trust_president > 0 & new_opros0$trust_reggov > 0 &
+                         new_opros0$trust_strangers > 0 &  new_opros0$trust_finsys > 0 &
+                         new_opros0$trust_foreigners > 0 &  new_opros0$trust_locgov > 0 &
+                         new_opros0$trust_ministry > 0 &  new_opros0$Wealth_fut > 0 &
+                         new_opros0$Wealth_now > 0 &  new_opros0$Wealth_past > 0 &
+                         new_opros0$trust_courts > 0 & new_opros0$trust_police > 0,]}
+
+#сколько каждого из вариантов ответов
+
+# table(new_opros0$Entrepreneur)
+#
+
+
+
+                        ##### 1] Data prepared (restart the df from here) ####
+        #### data restart####
+
+#
+#
+#
+#
+new_opros <- new_opros0
+#
+#
+#
+#
+
+####soc-dem var      ####
+# transforming the gender
+new_opros['Gender'][new_opros['Gender'] == 2] <- 0 #1 - male, 0 - female
+# height dummy
+# new_opros['height160_170'] <- as.numeric((160 < new_opros['Height'] & new_opros['Height']<= 170 )| new_opros['Height'] == -97)
+# new_opros['height170_180'] <- as.numeric(170 < new_opros['Height'] & new_opros['Height']<= 180)
+# new_opros['height180_190'] <- as.numeric(180 < new_opros['Height'] & new_opros['Height']<= 190)
+# new_opros['height190_218'] <- as.numeric(190 < new_opros['Height'])
+
+
+# #Marriage
+# new_opros$Marriage
+# new_opros['marstat'][new_opros['Marriage'] == 1] <- 'Single_ttd'
+# new_opros['marstat'][new_opros['Marriage'] == 2] <- 'Married'
+# new_opros['marstat'][new_opros['Marriage'] == 3] <- 'Widowed'
+# new_opros['marstat'][new_opros['Marriage'] == 4] <- 'Divorced'
+# new_opros['marstat'][new_opros['Marriage'] == 5] <- 'Separated'
+
+# age^2
+new_opros$Age_2 <- new_opros$Age^2
+
+#### predprim var    ####
+
+# value                                                                            label
+# 1                                            Yes I have set up my current business
+# 2 Yes I set up a business in the past but I am no longer involved in it or it is n
+# 3          Yes I tried to set up a business and did not succeed (in setting it up)
+# 4                                                                               No
+
+# transforming the Entrepreneur
+# предприм попытка мультикласс
+new_opros['Entrepreneur_attempt'] = as.character(new_opros$Entrepreneur)
+new_opros['Entrepreneur_attempt'] <- ifelse(new_opros$Entrepreneur_attempt == '1',
+                                            "Текущий предприниматель", new_opros$Entrepreneur_attempt)
+new_opros['Entrepreneur_attempt'] <- ifelse(new_opros$Entrepreneur_attempt == '2',
+                                            "Отошедший от дел предприниматель", new_opros$Entrepreneur_attempt)
+new_opros['Entrepreneur_attempt'] <- ifelse(new_opros$Entrepreneur_attempt == '3',
+                                            "Провалившийся предприниматель", new_opros$Entrepreneur_attempt)
+new_opros['Entrepreneur_attempt'] <- ifelse(new_opros$Entrepreneur_attempt == '4',
+                                            "Обыватель", new_opros$Entrepreneur_attempt)
+# предприм бинарки
+new_opros['Entr_current'] <- ifelse(new_opros$Entrepreneur == 1,1,0)
+new_opros['Entr_retired'] <- ifelse(new_opros$Entrepreneur == 2,1,0)
+new_opros['Entr_failure'] <- ifelse(new_opros$Entrepreneur == 3,1,0)
+new_opros['Entr_no'] <- ifelse(new_opros$Entrepreneur == 4,1,0)
+# предприм попытка бинарка
+new_opros['Entrepreneur'][new_opros['Entrepreneur'] == 2] <- 1
+new_opros['Entrepreneur'][new_opros['Entrepreneur'] == 3] <- 1
+new_opros['Entrepreneur'][new_opros['Entrepreneur'] == 4] <- 0
+
+
+#========= transforming the q702 and the rest ===-=-=-=-=-=-=-=-=-=-==-
+
+# Education
+# value                                     label
+# 1                        No degree/No education
+# 2                             Primary education
+# 3                     Lower secondary education
+# 4                   (Upper) secondary education
+# 5         Post-secondary non-tertiary education
+# 6 Tertiary education (not a university diploma)
+# 7                     Bachelor's degree or more
+# 8                        Master's degree or PhD
+
+# respondent's education
+new_opros['Education_low'] <- ifelse(new_opros$Education == 3 | new_opros$Education == 4 |
+                                     new_opros$Education == 5 | new_opros$Education == 6, 1, 0)
+new_opros['Education_high'] <- ifelse(new_opros$Education == 7 | new_opros$Education == 8, 1, 0)
+
+# parent's education
+new_opros['Educ_father_low'] <- ifelse(new_opros$Educ_father == 3 | new_opros$Educ_father == 4 |
+                                     new_opros$Educ_father == 5 | new_opros$Educ_father == 6, 1, 0)
+new_opros['Educ_father_high'] <- ifelse(new_opros$Educ_father == 7 | new_opros$Educ_father == 8, 1, 0)
+
+new_opros['Educ_mother_low'] <- ifelse(new_opros$Educ_mother == 3 | new_opros$Educ_mother == 4 |
+                                         new_opros$Educ_mother == 5 | new_opros$Educ_mother == 6, 1, 0)
+new_opros['Educ_mother_high'] <- ifelse(new_opros$Educ_mother == 7 | new_opros$Educ_mother == 8, 1, 0)
+
+
+
+
+####gulag dummy variables ####
+gulag10km <- ifelse(new_opros$guldist <= 10, 1, 0)
+gulag50km <- ifelse(new_opros$guldist <= 50, 1, 0)
+gulag100km <- ifelse(new_opros$guldist <= 100, 1, 0)
+# table(gulag10km)
+
+#===# appending & scaling up the distance to 10km instead of 1km####
+# new_opros$guldist0 <- new_opros$guldist
+new_opros$guldist10 <- new_opros$guldist/10
+#appending
+new_opros <- cbind(new_opros,gulag10km);
+new_opros <- cbind(new_opros,gulag50km);
+new_opros <- cbind(new_opros,gulag100km);
+
+
+#### region var ####
+new_opros$guldist10
+mean_region <- new_opros %>% group_by(Region_name) %>% summarise(Количество_наблюдений = n(),
+                                                                      humcap_low = mean(Education_low) %>% round(2),
+                                                                      humcap_high = mean(Education_high) %>% round(2),
+                                                                      Срд_Entrepreneur = mean(Entrepreneur) %>% round(2),
+                                                                 Срд_guldist10 = mean(guldist10) %>% round(2),
+                                                                 Срд_gulag10km = mean(gulag10km) %>% round(2),
+                                                                 Срд_raildist = mean(raildist) %>% round(2)
+                                                                      
+)
+new_opros <- left_join(new_opros, mean_region, by = 'Region_name')
+
+#### dummy variables ####
+
+# ethnisity dummy variable
+new_opros['Rus_ethnicity'] <- as.numeric(new_opros['Rus_ethnicity'] == 'Russian')
+
+
+# religion
+new_opros['Rel_budd'] <- as.numeric(new_opros['Religion'] == 2)
+new_opros['Rel_jwsh'] <- as.numeric(new_opros['Religion'] == 3)
+new_opros['Rel_orth'] <- as.numeric(new_opros['Religion'] == 4)
+new_opros['Rel_cath'] <- as.numeric(new_opros['Religion'] == 5)
+new_opros['Rel_prot'] <- as.numeric(new_opros['Religion'] == 6)
+new_opros['Rel_musl'] <- as.numeric(new_opros['Religion'] == 7)
+new_opros['Rel_rest'] <- as.numeric(new_opros['Religion'] == 8)
+# 3979 - muslim
+# 3085 - orthodox
+# 664 - atheist
+# 421 - buddhist
+
+
+
+#Wallet_ret_prob
+# new_opros['Wallet_ret_prob'][new_opros['Wallet_ret_prob'] < 0] <- 0
+# new_opros['Wallet_ret_prob'][new_opros['Wallet_ret_prob'] == 1] <- 97
+# new_opros['Wallet_ret_prob'][new_opros['Wallet_ret_prob'] == 2] <- 1
+# new_opros['Wallet_ret_prob'][new_opros['Wallet_ret_prob'] == 97] <- 2
+# new_opros['Wallet_ret_prob'][new_opros['Wallet_ret_prob'] == 3] <- -1
+# new_opros['Wallet_ret_prob'][new_opros['Wallet_ret_prob'] == 4] <- -2
+# country
+Azerbaijan <- ifelse(new_opros$Country == 'Azerbaijan', 1, 0)
+Belarus <- ifelse(new_opros$Country == 'Belarus', 1, 0)
+Estonia <- ifelse(new_opros$Country == 'Estonia', 1, 0)
+Georgia <- ifelse(new_opros$Country == 'Georgia', 1, 0)
+Kazakhstan <- ifelse(new_opros$Country == 'Kazakhstan', 1, 0)
+Kyrgyztan <- ifelse(new_opros$Country == 'Kyrgyz Rep.', 1, 0)
+Mongolia <- ifelse(new_opros$Country == 'Mongolia', 1, 0)
+Russia <- ifelse(new_opros$Country == 'Russia', 1, 0)
+Tajikistan <- ifelse(new_opros$Country == 'Tajikistan', 1, 0)
+Ukraine <- ifelse(new_opros$Country == 'Ukraine', 1, 0)
+Uzbekistan <- ifelse(new_opros$Country == 'Uzbekistan', 1, 0)
+
+D_countries <- data.frame(Azerbaijan, Belarus, Estonia, Georgia,
+                          Kazakhstan, Kyrgyztan, Mongolia, Russia, 
+                          Tajikistan, Ukraine, Uzbekistan)
+
+new_opros <- cbind(new_opros, D_countries);
+#### repression variables ####
+
+
+new_opros['relatives_repressed'] <- ifelse(new_opros$vicrepr1 == 1 | new_opros$vicrepr2 == 1 | new_opros$vicrepr3 == 1,
+                                           1, 0)
+# how many in general?
+new_opros$relatives_repressed %>% sum() #693
+new_opros$vicrepr1 %>% sum() + new_opros$vicrepr2 %>% sum() + new_opros$vicrepr3 %>% sum() # 895
+
+
+#### произведения переменных       DELETED ####
+# 
+# trust_wealth_df <- {data.frame(new_opros$Trust*new_opros$Wealth_past,
+#                                new_opros$Trust*new_opros$Wealth_now,
+#                                new_opros$Trust*new_opros$Wealth_fut,
+#                                new_opros$trust_family*new_opros$Wealth_past,
+#                                new_opros$trust_family*new_opros$Wealth_now,
+#                                new_opros$trust_family*new_opros$Wealth_fut,
+#                                new_opros$trust_president*new_opros$Wealth_past,
+#                                new_opros$trust_president*new_opros$Wealth_now,
+#                                new_opros$trust_president*new_opros$Wealth_fut,
+#                                new_opros$trust_reggov*new_opros$Wealth_past,
+#                                new_opros$trust_reggov*new_opros$Wealth_now,
+#                                new_opros$trust_reggov*new_opros$Wealth_fut,
+#                                new_opros$trust_finsys*new_opros$Wealth_past,
+#                                new_opros$trust_finsys*new_opros$Wealth_now,
+#                                new_opros$trust_finsys*new_opros$Wealth_fut,
+#                                new_opros$trust_forinv*new_opros$Wealth_past,
+#                                new_opros$trust_forinv*new_opros$Wealth_now,
+#                                new_opros$trust_forinv*new_opros$Wealth_fut)
+# }
+# 
+# colnames(trust_wealth_df) <- {c('Trust_Wpast', 'Trust_Wnow', 'Trust_Wfut',
+#                                'trust_fam_Wpast', 'trust_fam_Wnow', 'trust_fam_Wfut',
+#                                'trust_pres_Wpast', 'trust_pres_Wnow', 'trust_pres_Wfut',
+#                                'trust_reggov_Wpast', 'trust_reggov_Wnow', 'trust_reggov_Wfut',
+#                                'trust_finsys_Wpast', 'trust_finsys_Wnow', 'trust_finsys_Wfut',
+#                                'trust_forinv_Wpast', 'trust_forinv_Wnow', 'trust_forinv_Wfut'
+#                                )}
+# 
+# #append
+# new_opros <- cbind(new_opros, trust_wealth_df)
+
+
+#### ПОЛНАЯ АНИГИЛЯЦИЯ ВЫБРОСОВВВВВВ ####
+new_opros %>% variable.names()
+#
+# new_opros0 <- cbind(new_opros0, D_countries)
+# 
+# new_opros1 <- new_opros0[new_opros0$Trust > 0,]
+# new_opros1 <- {new_opros1[new_opros1$Educ_father > 0 & new_opros1$Riskiness > 0 & 
+#                          new_opros1$trust_family > 0 & new_opros1$trust_neighbours > 0 &
+#                          new_opros1$trust_president > 0 & new_opros1$trust_reggov > 0 &
+#                          new_opros1$trust_strangers > 0 &  new_opros1$trust_finsys > 0 &
+#                          new_opros1$trust_courts > 0 & new_opros1$trust_police > 0,]}
+# new_opros1$guldist10 <- new_opros1$guldist/10
+# new_opros1$Age_2 <- new_opros1$Age^2
+# 
+# # religion
+# {new_opros1['Rel_budd'] <- as.numeric(new_opros1['Religion'] == 2)
+# new_opros1['Rel_jwsh'] <- as.numeric(new_opros1['Religion'] == 3)
+# new_opros1['Rel_orth'] <- as.numeric(new_opros1['Religion'] == 4)
+# new_opros1['Rel_cath'] <- as.numeric(new_opros1['Religion'] == 5)
+# new_opros1['Rel_prot'] <- as.numeric(new_opros1['Religion'] == 6)
+# new_opros1['Rel_musl'] <- as.numeric(new_opros1['Religion'] == 7)
+# new_opros1['Rel_rest'] <- as.numeric(new_opros1['Religion'] == 8)}
+# 
+# # предприм
+# {new_opros1['Entrepreneur'][new_opros1['Entrepreneur'] == 2] <- 1
+# new_opros1['Entrepreneur'][new_opros1['Entrepreneur'] == 3] <- 1
+# new_opros1['Entrepreneur'][new_opros1['Entrepreneur'] == 4] <- 0}
+# 
+# 
+# {prob1 <- glm(Entrepreneur ~ 
+#                 Trust +
+#                 guldist10 +
+#                 # raildist +
+#                 
+#                 trust_family + trust_strangers + trust_foreigners +
+#                 trust_president + trust_reggov + trust_locgov +
+#                 trust_courts + trust_police + trust_finsys + trust_forinv +
+#                 
+#                 Gender + (Age) + Age_2 +
+#                 
+#                 Education + Riskiness + Educ_father + Educ_mother +
+#                 Wealth_now +  Wealth_past + Wealth_fut +
+#                 
+#                 Rus_ethnicity +
+#                 Rel_budd + Rel_jwsh + Rel_musl + Rel_orth +
+#                 victim_of_repression +
+#                 
+#                 # Region_name
+#                 Azerbaijan + Belarus + Estonia + Georgia +
+#                 Kazakhstan + Kyrgyztan + Mongolia +
+#                 Tajikistan + Ukraine + Uzbekistan, 
+#                                  family = binomial(link = "probit"), 
+#                                  data = new_opros1)
+#   summary(prob1)}
+# 
+# 
+
+
+
+                        ##### 2] Data COMPLETE ####
+# ------------------------------------Описательные статы ------------------------------------------------------
+#####чек выбросы по всем данным####
+# new_opros$Region_name %>% unique()
+{# 4 - 14
+  ggplot(gather(new_opros[,4:14]), aes(value)) + 
+    geom_histogram(bins = 10) + 
+    facet_wrap(~key, scales = 'free_x')
+  
+  # 14 - 25
+  ggplot(gather(new_opros[,14:25]), aes(value)) + 
+    geom_histogram(bins = 10) + 
+    facet_wrap(~key, scales = 'free_x')
+  
+  # 25 - 36
+  ggplot(gather(new_opros[,25:36]), aes(value)) + 
+    geom_histogram(bins = 10) + 
+    facet_wrap(~key, scales = 'free_x')
+  
+  # 36 - 47
+  ggplot(gather(new_opros[,36:47]), aes(value)) + 
+    geom_histogram(bins = 10) + 
+    facet_wrap(~key, scales = 'free_x')
+  
+  # 47 - 59
+  ggplot(gather(new_opros[,47:59]), aes(value)) + 
+    geom_histogram(bins = 10) + 
+    facet_wrap(~key, scales = 'free_x')}
+
+
+#------------------# анализ корреляции #------------------#
+# анализ корреляции благосостояния
+cor(new_opros$Wealth_past, new_opros$Wealth_now)
+cor(new_opros$Wealth_now, new_opros$Wealth_fut)
+cor(new_opros$Wealth_past, new_opros$Wealth_fut)
+# Корр Матрица
+# corrplot(cor(drop_na(new_opros[,4:59])), method = "circle", tl.col = "black",)
+# общая корр 1 из 3
+corrplot(cor(drop_na(new_opros[,4:19])), method = "circle", tl.col = "black",)
+# общая корр 2 из 3
+corrplot(cor(drop_na(new_opros[,20:33])), method = "circle", tl.col = "black",)
+# общая корр 3 из 3
+# corrplot(cor(drop_na(new_opros[,34:59])), method = "circle", tl.col = "black",)
+
+
+#guldist описательные статистики по странам
+{desc_guldist <- new_opros %>% group_by(Страна = Country)%>% summarise(Количество_наблюдений = n(),
+                                                         Среднее = mean(guldist) %>% round(2),
+                                                         Медиана = median(guldist) %>% round(2),
+                                                         Ст.от = sd(guldist)  %>% round(2),
+                                                         Мин = min(guldist)  %>% round(2),
+                                                         Макс = max(guldist)  %>% round(2))
+stargazer(desc_guldist, title = 'Расстояние до ближайшего ГУЛАГа',
+          dep.var.labels.include = TRUE,
+          type = 'html', out = 'desc_stat_guld.html', summary = F)
+}
+#предприм описательные статистики по странам
+{desc_entrep <- new_opros %>% group_by(Страна = Country) %>% summarise(Количество = n() %>% round(2),
+                                                                       # Предприм = n(Entrepreneur = 1),
+                                                                   Среднее = mean(Entrepreneur) %>% round(2),
+                                                                   Ст.от = sd(Entrepreneur)  %>% round(2)
+                                                                   )
+stargazer(desc_entrep, title = 'Доля Предпринимателей',
+            type = 'html', out = 'desc_stat_entrep.html', summary = F)
+}
+
+
+# тейблы с гулагами в радиусе
+# table(new_opros$gulag10km, new_opros$Entrepreneur) #%>% data.frame() 
+{table(new_opros$gulag10km)
+table(new_opros$gulag50km)
+table(new_opros$gulag100km)}
+
+#чек на выбросы и распределение
+ggplot(gather(new_opros0[,10:34]), aes(value)) + 
+  geom_histogram(bins = 10) + 
+  facet_wrap(~key, scales = 'free_x')
+
+
+
+# ------------------------------------testing & pca-----------------------------------------
+
+##### метод главных компонент для доверия ####
+new_opros_pca <- PCA(new_opros[,20:32])
+# разбивка
+corrplot(new_opros_pca$var$coord, is.corr = FALSE)
+# график каменистой осыпи
+fviz_eig(new_opros_pca, addlabels = TRUE)
+# матрица нагрузок
+# new_opros_pca$var$coord %>% round(2) %>% show_html()
+
+# достаем переменную pca
+trust_vlast <- new_opros_pca$ind$coord[,1]
+trust_bridge <- new_opros_pca$ind$coord[,2]
+trust_bond <- new_opros_pca$ind$coord[,3]
+
+# добавляем в датасет
+new_opros <- cbind(new_opros, trust_vlast)
+new_opros <- cbind(new_opros, trust_bridge)
+new_opros <- cbind(new_opros, trust_bond)
+
+#### средние trustы ####
+# trust средний по региону
+trust_mean_region <- new_opros %>% group_by(Region_name) %>% summarise(Количество_наблюдений = n(),
+                                                                       Срд_trust_bridge = mean(trust_bridge) %>% round(2),
+                                                                       Срд_trust_bond = mean(trust_bond) %>% round(2),
+                                                                       Срд_trust_vlast = mean(trust_vlast) %>% round(2),
+                                                                       Срд_trust_president = mean(trust_president) %>% round(2),
+                                                                       Срд_Trust = mean(Trust) %>% round(2)
+)
+new_opros <- left_join(new_opros, trust_mean_region, by = 'Region_name')
+
+####доп тесты####
+
+
+# testing vifs
+prob0 <- {glm(Entrepreneur ~ 
+                Trust +
+                guldist10 +
+                raildist +
+                
+                trust_bridge +
+                trust_bond +
+                trust_vlast +
+                
+                trust_president +
+                
+                # humcap_low +
+                humcap_high +
+                # Срд_Trust +
+                Срд_trust_bridge +
+                Срд_trust_bond +
+                # Срд_trust_vlast +
+                # Срд_trust_president +
+                Срд_Entrepreneur +
+
+                Gender + (Age) + Age_2 +
+                # height160_170 + height170_180 + height180_190 + height190_218 +
+                
+                Education + Riskiness + Educ_father + Educ_mother +
+                Wealth_now +  Wealth_past + Wealth_fut +
+                
+                Rus_ethnicity +
+                Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+                victim_of_repression + relatives_repressed +
+                
+                # Region_name
+                Azerbaijan + Belarus + Estonia + Georgia +
+                Kazakhstan + Kyrgyztan + Mongolia +
+                Tajikistan + Ukraine + Uzbekistan, 
+              family = binomial(link = "probit"), 
+              data = new_opros)}
+
+summary(prob0)
+
+# нужны ли производные переменные??
+vif(prob0)
+
+cor(new_opros$trust_president, new_opros$trust_vlast)
+
+new_opros
+# -------------------------------------CONSTRACTION ZONE ---------------------------------------
+####------------------## multinom regr##------------------------####
+#сколько их ?
+new_opros$Срд_education %>% hist()
+
+multigulag <- multinom({Entrepreneur_attempt ~ 
+             guldist10 +
+             Trust +
+             
+             trust_bridge +
+             trust_bond +
+             trust_vlast +
+             
+             trust_president +
+               
+             
+             humcap_high +
+             Срд_trust_bridge +
+             Срд_trust_bond +
+             Срд_Entrepreneur +
+    
+             Gender + (Age) + Age_2 +
+  
+             Education_low + Education_high + 
+             Educ_father_low + Educ_father_high +
+             Educ_mother_low + Educ_mother_high +
+             Riskiness + 
+             Wealth_now +  Wealth_past + Wealth_fut +
+             raildist +   
+             
+             Rus_ethnicity +
+             Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+             victim_of_repression + relatives_repressed +
+             
+             # Region_name
+             Azerbaijan + Belarus + Estonia + Georgia +
+             Kazakhstan + Kyrgyztan + Mongolia +
+             Tajikistan + Ukraine + Uzbekistan},
+             new_opros, model = TRUE) 
+
+stargazer(multigulag,
+          omit = {c('Gender', 'Age','Age_2', 'height160_170', 'height170_180', 'height180_190', 'height190_218',
+
+                    'raildist',
+                    'Education_low', 'Education_high',
+                    'Educ_father_low', 'Educ_father_high',
+                    'Educ_mother_low','Educ_mother_high',
+
+                    'Riskiness', 'Wealth_now', 'Wealth_past', 'Wealth_fut',
+
+                    'Rus_ethnicity', 'Rel_budd', 'Rel_jwsh', 'Rel_orth',
+                    'victim_of_repression', 'relatives_repressed',
+
+                    'Azerbaijan', 'Belarus', 'Estonia', 'Georgia',
+                    'Kazakhstan', 'Kyrgyztan', 'Mongolia', 'Russia',
+                    'Tajikistan', 'Ukraine', 'Uzbekistan',
+                    'Constant')},
+          type = "html",
+          out = "Multi.html")
+
+# влияние на каждый из трастов в мультикласс постановке
+trust_guld <- {lm(Trust ~ 
+     guldist10 + 
+     Entrepreneur_attempt +
+     
+     trust_bridge +
+     trust_bond +
+     trust_vlast +
+       trust_president +
+     
+       humcap_high +
+       Срд_trust_bridge +
+       Срд_trust_bond +
+       Срд_Entrepreneur +
+
+     
+     Gender + (Age) + Age_2 +
+     
+     Education_low + Education_high + 
+     Educ_father_low + Educ_father_high +
+     Educ_mother_low + Educ_mother_high +
+     Riskiness + 
+     Wealth_now +  Wealth_past + Wealth_fut +
+     raildist +   
+     
+     Rus_ethnicity +
+     Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+     victim_of_repression + relatives_repressed +
+     
+     # Region_name
+     Azerbaijan + Belarus + Estonia + Georgia +
+     Kazakhstan + Kyrgyztan + Mongolia +
+     Tajikistan + Ukraine + Uzbekistan, 
+     new_opros)}
+trust_vlast_guld <- {lm(trust_vlast ~ 
+                              guldist10 + 
+                              Entrepreneur_attempt +
+                              
+                              trust_bridge +
+                              trust_bond +
+                              trust_president +
+                              
+                              Trust +
+                              
+                          humcap_high +
+                          Срд_trust_bridge +
+                          Срд_trust_bond +
+                          Срд_Entrepreneur +
+                              
+                              Gender + (Age) + Age_2 +
+                              
+                              Education_low + Education_high + 
+                              Educ_father_low + Educ_father_high +
+                              Educ_mother_low + Educ_mother_high +
+                              Riskiness + 
+                              Wealth_now +  Wealth_past + Wealth_fut +
+                              raildist +   
+                              
+                              Rus_ethnicity +
+                              Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+                              victim_of_repression + relatives_repressed +
+                              
+                              # Region_name
+                              Azerbaijan + Belarus + Estonia + Georgia +
+                              Kazakhstan + Kyrgyztan + Mongolia +
+                              Tajikistan + Ukraine + Uzbekistan, 
+                            new_opros)}
+trust_president_guld <- {lm(trust_president ~ 
+                    guldist10 + 
+                    Entrepreneur_attempt +
+                    
+                    trust_bridge +
+                    trust_bond +
+                    trust_vlast +
+                    
+                    Trust +
+                    
+                      humcap_high +
+                      Срд_trust_bridge +
+                      Срд_trust_bond +
+                      Срд_Entrepreneur +
+                    
+                    Gender + (Age) + Age_2 +
+                    
+                    Education_low + Education_high + 
+                    Educ_father_low + Educ_father_high +
+                    Educ_mother_low + Educ_mother_high +
+                    Riskiness + 
+                    Wealth_now +  Wealth_past + Wealth_fut +
+                    raildist +   
+                    
+                    Rus_ethnicity +
+                    Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+                    victim_of_repression + relatives_repressed +
+                    
+                    # Region_name
+                    Azerbaijan + Belarus + Estonia + Georgia +
+                    Kazakhstan + Kyrgyztan + Mongolia +
+                    Tajikistan + Ukraine + Uzbekistan, 
+                  new_opros)}
+trust_bridge_guld <- {lm(trust_bridge~ 
+                              guldist10 + 
+                              Entrepreneur_attempt +
+                              
+                              trust_bond +
+                              trust_vlast +
+                              trust_president +
+                              
+                              Trust +
+                              
+                              humcap_high +
+                              Срд_trust_bridge +
+                              Срд_trust_bond +
+                              Срд_Entrepreneur +
+                              
+                              Gender + (Age) + Age_2 +
+                              
+                              Education_low + Education_high + 
+                              Educ_father_low + Educ_father_high +
+                              Educ_mother_low + Educ_mother_high +
+                              Riskiness + 
+                              Wealth_now +  Wealth_past + Wealth_fut +
+                              raildist +   
+                              
+                              Rus_ethnicity +
+                              Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+                              victim_of_repression + relatives_repressed +
+                              
+                              # Region_name
+                              Azerbaijan + Belarus + Estonia + Georgia +
+                              Kazakhstan + Kyrgyztan + Mongolia +
+                              Tajikistan + Ukraine + Uzbekistan, 
+                            new_opros)}
+trust_bond_guld <- {lm(trust_bond~ 
+                           guldist10 + 
+                           Entrepreneur_attempt +
+                           
+                           trust_bridge +
+                           trust_vlast +
+                           trust_president +
+                           
+                           Trust +
+                           
+                           humcap_high +
+                           Срд_trust_bridge +
+                           Срд_trust_bond +
+                           Срд_Entrepreneur +
+                           
+                           Gender + (Age) + Age_2 +
+                           
+                           Education_low + Education_high + 
+                           Educ_father_low + Educ_father_high +
+                           Educ_mother_low + Educ_mother_high +
+                           Riskiness + 
+                           Wealth_now +  Wealth_past + Wealth_fut +
+                           raildist +   
+                           
+                           Rus_ethnicity +
+                           Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+                           victim_of_repression + relatives_repressed +
+                           
+                           # Region_name
+                           Azerbaijan + Belarus + Estonia + Georgia +
+                           Kazakhstan + Kyrgyztan + Mongolia +
+                           Tajikistan + Ukraine + Uzbekistan, 
+                         new_opros)}
+
+
+stargazer(trust_guld, #trust_vlast_guld, trust_president_guld,
+          trust_bridge_guld,trust_bond_guld,
+          omit = {c('Gender', 'Age','Age_2', 'height160_170', 'height170_180', 'height180_190', 'height190_218',
+                    
+                    'raildist',
+                    'Education_low', 'Education_high',
+                    'Educ_father_low', 'Educ_father_high',
+                    'Educ_mother_low','Educ_mother_high',
+                    
+                    'Riskiness', 'Wealth_now', 'Wealth_past', 'Wealth_fut',
+                    
+                    'Rus_ethnicity', 'Rel_budd', 'Rel_jwsh', 'Rel_orth',
+                    'victim_of_repression', 'relatives_repressed',
+                    
+                    'Azerbaijan', 'Belarus', 'Estonia', 'Georgia',
+                    'Kazakhstan', 'Kyrgyztan', 'Mongolia', 'Russia',
+                    'Tajikistan', 'Ukraine', 'Uzbekistan',
+                    'Constant')},
+          type = "html",
+          out = "trust_guld.html")
+
+####============== Region+ models======================####
+
+mean_region$Срд_gulag10km
+
+new_opros_reg <- as.data.frame(cbind(mean_region, trust_mean_region))
+
+reg_trust <- {lm( Срд_Trust ~ Срд_Entrepreneur + humcap_high + Срд_raildist +
+                    Срд_guldist10 +
+                    # Срд_gulag10km +
+                    Срд_trust_bond + Срд_trust_bridge + Срд_trust_vlast + Срд_trust_president ,
+                  new_opros_reg)}
+reg_bridge <- {lm( Срд_trust_bridge ~ Срд_Entrepreneur + humcap_high + Срд_raildist +
+                     Срд_guldist10 +
+                     # Срд_gulag10km +
+                     Срд_Trust + Срд_trust_bond + Срд_trust_vlast + Срд_trust_president,
+                   new_opros_reg)}
+reg_vlast <- {lm( Срд_trust_vlast ~ Срд_Entrepreneur + humcap_high + Срд_raildist +
+                    Срд_guldist10 +
+                    # Срд_gulag10km +
+                    Срд_trust_bond + Срд_Trust + Срд_trust_president + Срд_trust_bridge,
+                  new_opros_reg)}
+
+stargazer(reg_trust, reg_bridge, reg_vlast,
+          omit = {c('Gender', 'Age','Age_2', 'height160_170', 'height170_180', 'height180_190', 'height190_218',
+                    
+                    'raildist',
+                    'Education_low', 'Education_high',
+                    'Educ_father_low', 'Educ_father_high',
+                    'Educ_mother_low','Educ_mother_high',
+                    
+                    'Riskiness', 'Wealth_now', 'Wealth_past', 'Wealth_fut',
+                    
+                    'Rus_ethnicity', 'Rel_budd', 'Rel_jwsh', 'Rel_orth',
+                    'victim_of_repression', 'relatives_repressed',
+                    
+                    'Azerbaijan', 'Belarus', 'Estonia', 'Georgia',
+                    'Kazakhstan', 'Kyrgyztan', 'Mongolia', 'Russia',
+                    'Tajikistan', 'Ukraine', 'Uzbekistan',
+                    'Constant')},
+          type = "text",
+          out = "reg_trust_models.html")
+{reg_prob <- glm({Entrepreneur ~ 
+                   Trust +
+                   guldist10 +
+                   # raildist +
+                   
+                   # trust_family + trust_strangers + trust_foreigners +
+                   # trust_president + trust_reggov + trust_locgov +
+                   # trust_courts + trust_police + trust_finsys + trust_forinv +
+                   
+                   Gender + (Age) + Age_2 +
+                   # height160_170 + height170_180 + height180_190 + height190_218 +
+                   
+                   Education + Riskiness + Educ_father + Educ_mother +
+                   Wealth_now +  Wealth_past + Wealth_fut +
+                   
+                   # Trust_Wpast + Trust_Wnow + Trust_Wfut +
+                   # trust_fam_Wpast + trust_fam_Wpast + trust_fam_Wpast +
+                   # trust_pres_Wpast + trust_pres_Wnow + trust_pres_Wfut +
+                   # trust_reggov_Wpast + trust_reggov_Wnow + trust_reggov_Wfut +
+                   # trust_finsys_Wpast + trust_finsys_Wnow + trust_finsys_Wfut +
+                   # trust_forinv_Wpast + trust_forinv_Wnow + trust_forinv_Wfut +
+                   
+                   Rus_ethnicity +
+                   Rel_budd + Rel_jwsh + Rel_musl + Rel_orth +
+                   victim_of_repression +
+                   
+                   Region_name
+                   # Azerbaijan + Belarus + Estonia + Georgia +
+                   # Kazakhstan + Kyrgyztan + Mongolia +
+                   # Tajikistan + Ukraine + Uzbekistan
+                 }, 
+                                 family = binomial(link = "probit"), 
+                                 data = new_opros)
+summary(reg_prob)}
+#### ДВУХШАГОВАЯ РЕГИОНАЛЬНАЯ МОДЕЛЬ####
+new_opros_reg$Region_name %>% count()
+iv_region_model <- ivreg( Срд_Entrepreneur ~  
+                            Срд_trust_bridge+ humcap_high + Срд_raildist +
+                           Срд_trust_vlast + Срд_trust_bond + Срд_trust_president +
+                          Срд_Trust|
+                           Срд_guldist10 + humcap_high + Срд_raildist +
+                            Срд_trust_bridge + Срд_trust_vlast + Срд_trust_president +
+                            Срд_trust_bond
+                         , data = new_opros_reg)
+summary(iv_region_model)
+
+####----------------##conley probit model##--------------####
+formula_guldist10_short <- {Entrepreneur ~ 
+    guldist10 +
+    Trust +
+
+    trust_bridge +
+    trust_bond +
+    trust_vlast +
+    
+    trust_president +
+    
+    # trust_family + trust_strangers + trust_foreigners +
+    # trust_reggov + trust_locgov +
+    # trust_courts + trust_police + trust_finsys + trust_forinv +
+    
+    Gender + (Age) + Age_2 +
+    # height160_170 + height170_180 + height180_190 + height190_218 +
+    
+    Education_low + Education_high + 
+    Educ_father_low + Educ_father_high +
+    Educ_mother_low + Educ_mother_high +
+    Riskiness + 
+    Wealth_now +  Wealth_past + Wealth_fut +
+    raildist +   
+    
+    Rus_ethnicity +
+    Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+    victim_of_repression + relatives_repressed +
+    
+    # Region_name
+    Azerbaijan + Belarus + Estonia + Georgia +
+    Kazakhstan + Kyrgyztan + Mongolia +
+    Tajikistan + Ukraine + Uzbekistan
+} 
+#
+formula_gulag10km_short <- {Entrepreneur ~ 
+    gulag10km +
+    Trust +
+    
+    trust_bridge +
+    trust_bond +
+    trust_vlast +
+    
+    trust_president +
+    
+    # trust_family + trust_strangers + trust_foreigners +
+    # trust_reggov + trust_locgov +
+    # trust_courts + trust_police + trust_finsys + trust_forinv +
+    
+    Gender + (Age) + Age_2 +
+    # height160_170 + height170_180 + height180_190 + height190_218 +
+    
+    Education_low + Education_high + 
+    Educ_father_low + Educ_father_high +
+    Educ_mother_low + Educ_mother_high +
+    Riskiness + 
+    Wealth_now +  Wealth_past + Wealth_fut +
+    raildist +   
+    
+    Rus_ethnicity +
+    Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+    victim_of_repression + relatives_repressed +
+    
+    # Region_name
+    Azerbaijan + Belarus + Estonia + Georgia +
+    Kazakhstan + Kyrgyztan + Mongolia +
+    Tajikistan + Ukraine + Uzbekistan
+} 
+#
+formula_gulag50km_short <- {Entrepreneur ~ 
+    gulag50km +
+    Trust +
+    
+    trust_bridge +
+    trust_bond +
+    trust_vlast +
+    
+    trust_president +
+    
+    # trust_family + trust_strangers + trust_foreigners +
+    # trust_reggov + trust_locgov +
+    # trust_courts + trust_police + trust_finsys + trust_forinv +
+    
+    Gender + (Age) + Age_2 +
+    # height160_170 + height170_180 + height180_190 + height190_218 +
+    
+    Education_low + Education_high + 
+    Educ_father_low + Educ_father_high +
+    Educ_mother_low + Educ_mother_high +
+    Riskiness + 
+    Wealth_now +  Wealth_past + Wealth_fut +
+    raildist +   
+    
+    Rus_ethnicity +
+    Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+    victim_of_repression + relatives_repressed +
+    
+    # Region_name
+    Azerbaijan + Belarus + Estonia + Georgia +
+    Kazakhstan + Kyrgyztan + Mongolia +
+    Tajikistan + Ukraine + Uzbekistan
+} 
+#
+formula_gulag100km_short <- {Entrepreneur ~ 
+    gulag100km +
+    Trust +
+    
+    trust_bridge +
+    trust_bond +
+    trust_vlast +
+    
+    trust_president +
+    
+    # trust_family + trust_strangers + trust_foreigners +
+    # trust_reggov + trust_locgov +
+    # trust_courts + trust_police + trust_finsys + trust_forinv +
+    
+    Gender + (Age) + Age_2 +
+    # height160_170 + height170_180 + height180_190 + height190_218 +
+    
+    Education_low + Education_high + 
+    Educ_father_low + Educ_father_high +
+    Educ_mother_low + Educ_mother_high +
+    Riskiness + 
+    Wealth_now +  Wealth_past + Wealth_fut +
+    raildist +   
+    
+    Rus_ethnicity +
+    Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+    victim_of_repression + relatives_repressed +
+    
+    # Region_name
+    Azerbaijan + Belarus + Estonia + Georgia +
+    Kazakhstan + Kyrgyztan + Mongolia +
+    Tajikistan + Ukraine + Uzbekistan
+}
+
+
+#probit_mod_short_guldist
+{probit_mod_short_guldist <- glm(formula_guldist10_short, 
+                  family = binomial(link = "probit"), 
+                  data = new_opros)
+summary(probit_mod_short_guldist)}
+  # альтернативные (не нужны)
+  {#probit_mod_gulag10km
+    {probit_mod_gulag10km <- glm(formula_gulag10km_short,
+                                  family = binomial(link = "probit"),
+                                  data = new_opros)
+summary(probit_mod_gulag10km)
+  }
+# #probit_mod_gulag50km
+# {probit_mod_gulag50km <- glm(formula_gulag50km_short, 
+#                                     family = binomial(link = "probit"), 
+#                                     data = new_opros)}
+# #probit_mod_gulag100km
+# {probit_mod_gulag100km <- glm(formula_gulag100km_short, 
+#                                     family = binomial(link = "probit"), 
+#                                     data = new_opros)}
+  }
+#conley_mod_short_guldist
+{conley_mod_short_guldist <- conleyreg(formula_guldist10_short,
+                                       dist_cutoff = 100,
+                                       model = 'probit',
+                                       data = new_opros,
+                                       unit = 'ID',
+                                       sparse = TRUE,
+                                       lat = 'LAT', lon = 'LONG',
+                                       gof = TRUE)
+}
+   # альтернативные
+   { #conley_mod_short_gulag10km
+  {conley_mod_short_gulag10km <- conleyreg(formula_gulag10km_short,
+                                          dist_cutoff = 100,
+                                          model = 'probit',
+                                          data = new_opros,
+                                          unit = 'ID',
+                                          sparse = TRUE,
+                                          lat = 'LAT', lon = 'LONG',
+                                          gof = TRUE
+  )
+  }
+  #conley_mod_short_gulag50km
+  {conley_mod_short_gulag50km <- conleyreg(formula_gulag50km_short,
+                                          dist_cutoff = 100,
+                                          model = 'probit',
+                                          data = new_opros,
+                                          unit = 'ID',
+                                          sparse = TRUE,
+                                          lat = 'LAT', lon = 'LONG',
+                                          gof = TRUE
+  )
+  }
+  #conley_mod_short_gulag100km
+  {conley_mod_short_gulag100km <- conleyreg(formula_gulag100km_short,
+                                           dist_cutoff = 100,
+                                           model = 'probit',
+                                           data = new_opros,
+                                           unit = 'ID',
+                                           sparse = TRUE,
+                                           lat = 'LAT', lon = 'LONG',
+                                           gof = TRUE
+  )
+  }
+   }
+# full models with extra variables (не нужны)
+{# 
+# #conley_mod_full_guldist
+# {conley_mod_full_guldist <- conleyreg(formula_guldist10,
+#                        dist_cutoff = 100,
+#                        model = 'probit',
+#                        data = new_opros,
+#                        unit = 'Region_name',
+#                        lat = 'LAT', lon = 'LONG',
+#                        gof = TRUE
+#                        )
+# }
+# #conley_mod_full_gulag10km
+# {conley_mod_full_gulag10km <- conleyreg(formula_gulag10km,
+#                        dist_cutoff = 100,
+#                        model = 'probit',
+#                        data = new_opros,
+#                        unit = 'Region_name',
+#                        lat = 'LAT', lon = 'LONG',
+#                        gof = TRUE
+#                       )
+# }
+# #conley_mod_full_gulag50km
+# {conley_mod_full_gulag50km <- conleyreg(formula_gulag50km,
+#                        dist_cutoff = 100,
+#                        model = 'probit',
+#                        data = new_opros,
+#                        unit = 'Region_name',
+#                        lat = 'LAT', lon = 'LONG',
+#                        gof = TRUE
+#                       )
+# }
+# #conley_mod_full_gulag100km
+# {conley_mod_full_gulag100km <- conleyreg(formula_gulag100km,
+#                        dist_cutoff = 100,
+#                        model = 'probit',
+#                        data = new_opros,
+#                        unit = 'Region_name',
+#                        lat = 'LAT', lon = 'LONG',
+#                        gof = TRUE
+#                       )
+# }
+}
+
+#<><><><><><><><><><><><><><><># Тестировка
+
+
+
+
+
+##
+#table
+##
+
+
+conley_mod_short_gulag100km$adj.pseudo.r.squared %>% round(4)
+DescTools::PseudoR2(probit_mod_short_guldist) %>% round(4)
+
+
+# краткое именование моделей
+{aa <- probit_mod_short_guldist #%>% summary()
+a <- conley_mod_short_guldist$coefficients
+b <- conley_mod_short_gulag10km$coefficients
+c <- conley_mod_short_gulag50km$coefficients
+d <- conley_mod_short_gulag100km$coefficients
+# e <- conley_mod_full_gulag100km$coefficients
+}
+# старгейзер конли
+{stargazer(aa,a,b,c,d,
+          #conley_mod_short_guldist, conley_mod_full_guldist,
+          # conley_mod_full_gulag10km, conley_mod_full_gulag50km, conley_mod_full_gulag100km,
+          title = 'Вероятностная пробит-модель со стандартными ошибками по Конли 1999',
+          dep.var.caption = 'Зависимая переменная предпринимательства',
+          type = "html",
+          model.names = TRUE,
+          add.lines = {list(c('Контрольные переменные', 'Да', 'Да'
+                            #c("Соц-Дем переменные", "Да", "Да", "Да"#, "Да", "Да", "Да", "Да", "Да"
+                            # ), #Gender, Age, height
+                            # c("Переменные доверия", "Да", "Да"#, "Да"#, "Да", "Да", "Да", "Да", "Да"
+                            # ), # 
+                            # # c('Произведения доверия и благосостояния', 'Да', 'Нет', 'Да'),
+                            # c("Переменные предпринимательства", "Да", "Да"#, "Да"#, "Да", "Да", "Да", "Да", "Да"
+                            # ), # Educ, Risk, Wealth
+                            # 
+                            # c("Переменные религии и национальности", "Да", "Да"#, "Да"#, "Да", "Да", "Да", "Да", "Да"
+                            # ),
+                            # c("Фиксированные эффекты стран", "Да", "Да"#, "Да"#, "Да", "Да", "Да", "Да", "Да"
+                            ))},
+          omit = {c('Gender', 'Age','Age_2', 'height160_170', 'height170_180', 'height180_190', 'height190_218',
+
+                   'raildist',
+                   'Education_low', 'Education_high',
+                   'Educ_father_low', 'Educ_father_high',
+                   'Educ_mother_low','Educ_mother_high',
+
+                   'Riskiness', 'Wealth_now', 'Wealth_past', 'Wealth_fut',
+
+                   'Rus_ethnicity', 'Rel_budd', 'Rel_jwsh', 'Rel_orth',
+                   'victim_of_repression', 'relatives_repressed',
+
+                   'Azerbaijan', 'Belarus', 'Estonia', 'Georgia',
+                   'Kazakhstan', 'Kyrgyztan', 'Mongolia', 'Russia',
+                   'Tajikistan', 'Ukraine', 'Uzbekistan',
+                   'Constant')},
+          covariate.labels = {c('Расстояние до ближайшего ГУЛАГа в десятках км',
+                                'Наличие ГУЛАГа в радиусе 10 км', 'Наличие ГУЛАГа в радиусе 50 км', 'Наличие ГУЛАГа в радиусе 100 км',
+                                'Доверие обобщенное', 'Доверие бриджинговое', 'Доверие бондинговое',
+                                'Доверие системе власти', 'Доверие президенту'
+                                # 'Образование отца',
+                                # 'trust_pres_Wpast', 'trust_pres_Wnow', 'trust_finsys_Wfut',
+                                # 'trust_forinv_Wnow', 'trust_forinv_Wfut',
+                                # 'Жертва репрессий до 1989 года'
+                                )},
+          notes.align = 'l',
+          out.header = F,
+          notes.label = 'Примечания',
+          out = "Conley.html"
+          );}
+
+
+
+#--------------------------- instrumental (probit) ---------------------------------------------------
+
+##======## short (deleted) ##========##
+  {# guldist10 x Trust          # mod_prob_short_guldist - 
+  {
+    # mod_prob_short_guldist <- ivpml({Entrepreneur ~ 
+    #   Trust +
+    #   
+    #   trust_bridge +
+    #   trust_bond +
+    #   trust_vlast +
+    #   trust_president + 
+    #   
+    #   # trust_family + trust_strangers + trust_foreigners +
+    #   # trust_reggov + trust_locgov +
+    #   # trust_courts + trust_police + trust_finsys + trust_forinv +
+    #     
+    #     Gender + (Age) + I((Age)^2) +
+    # 
+    #     Education + Riskiness + Educ_father + Educ_mother +
+    #     Wealth_now +  Wealth_past + Wealth_fut +
+    #   raildist +
+    #   
+    #     Rus_ethnicity +
+    #     Rel_budd + Rel_jwsh + Rel_orth +
+    #     victim_of_repression|#=======================================# 
+    #     guldist10 +
+    # 
+    #   trust_bridge +
+    #   trust_bond +
+    #   trust_vlast +
+    #   trust_president + 
+    #   
+    #   # trust_family + trust_strangers + trust_foreigners +
+    # 
+    #   # trust_reggov + trust_locgov +
+    #   # trust_courts + trust_police + trust_finsys + trust_forinv +
+    #   
+    #     Gender + (Age) + I((Age)^2) +
+    # 
+    #     Education + Riskiness + Educ_father + Educ_mother +
+    #     Wealth_now +  Wealth_past + Wealth_fut +
+    #   raildist +
+    #   
+    #     Rus_ethnicity +
+    #     Rel_budd + Rel_jwsh + Rel_orth +
+    #     victim_of_repression
+    # },
+    #                  data = new_opros); summary(mod_prob_short_guldist)
+    }
+  # gulag10km x Trust        # mod_prob_short_gul10km - 
+  {
+    # mod_prob_short_gul10km <- ivpml({Entrepreneur ~ Trust +
+    #     raildist +
+    #   
+    #   trust_bridge +
+    #   trust_bond +
+    #   trust_vlast +
+    #   
+    #   # trust_family + trust_strangers + trust_foreigners +
+    #   trust_president + 
+    #   # trust_reggov + trust_locgov +
+    #   # trust_courts + trust_police + trust_finsys + trust_forinv +
+    #   
+    #     Gender + (Age) + I((Age)^2) +
+    # 
+    #     Education + Riskiness + Educ_father + Educ_mother +
+    #     Wealth_now +  Wealth_past + Wealth_fut +
+    # 
+    #     Rus_ethnicity +
+    #     Rel_budd + Rel_jwsh + Rel_musl + Rel_orth +
+    #     victim_of_repression|#=======================================# 
+    #     gulag10km +
+    #     raildist +
+    #   
+    #   trust_bridge +
+    #   trust_bond +
+    #   trust_vlast +
+    #   
+    #   # trust_family + trust_strangers + trust_foreigners +
+    #   trust_president + 
+    #   # trust_reggov + trust_locgov +
+    #   # trust_courts + trust_police + trust_finsys + trust_forinv +
+    #   
+    #     Gender + (Age) + I((Age)^2) +
+    # 
+    #     Education + Riskiness + Educ_father + Educ_mother +
+    #     Wealth_now +  Wealth_past + Wealth_fut +
+    # 
+    #     Rus_ethnicity +
+    #     Rel_budd + Rel_jwsh + Rel_musl + Rel_orth +
+    #     victim_of_repression
+    # }
+    #                                ,
+    #                                data = new_opros); summary(mod_prob_short_gul10km)
+    }
+  }
+##==========## full ##============##
+  {# guldist10 x Trust     # mod_prob_guldist
+    {mod_prob_guldist <- ivpml({Entrepreneur ~ 
+        Trust +
+        
+        trust_bridge +
+        trust_bond +
+        trust_vlast +
+        trust_president + 
+        
+        # trust_family + trust_strangers + trust_foreigners +
+        # trust_reggov + trust_locgov +
+        # trust_courts + trust_police + trust_finsys + trust_forinv +
+        
+        Gender + (Age) + I((Age)^2) +
+        
+        Education_low + Education_high + 
+        Educ_father_low + Educ_father_high +
+        Educ_mother_low + Educ_mother_high +
+        Riskiness +
+        Wealth_now +  Wealth_past + Wealth_fut +
+        raildist +
+        
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_orth +
+        victim_of_repression + relatives_repressed +
+        
+        Azerbaijan + Belarus + Estonia + Georgia +
+        Kazakhstan + Kyrgyztan + Mongolia +
+        Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+        guldist10 +
+        trust_bridge +
+        trust_bond +
+        trust_vlast +
+        trust_president + 
+        
+        # trust_family + trust_strangers + trust_foreigners +
+        # trust_reggov + trust_locgov +
+        # trust_courts + trust_police + trust_finsys + trust_forinv +
+        
+        Gender + (Age) + I((Age)^2) +
+        
+        Education_low + Education_high + 
+        Educ_father_low + Educ_father_high +
+        Educ_mother_low + Educ_mother_high +
+        Riskiness +
+        Wealth_now +  Wealth_past + Wealth_fut +
+        raildist +
+        
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_orth +
+        victim_of_repression + relatives_repressed +
+        
+        Azerbaijan + Belarus + Estonia + Georgia +
+        Kazakhstan + Kyrgyztan + Mongolia +
+        Tajikistan + Ukraine + Uzbekistan},
+        data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+    ); summary(mod_prob_guldist)
+  }
+  # guldist10 x trust_president    # mod_prob_guldist_pres
+    {mod_prob_guldist_pres <- ivpml({Entrepreneur ~ 
+        trust_president +
+
+        Trust +
+        
+        trust_bridge +
+        trust_bond +
+        trust_vlast +
+
+        Gender + (Age) + I((Age)^2) +
+  
+        Education_low + Education_high + 
+        Educ_father_low + Educ_father_high +
+        Educ_mother_low + Educ_mother_high +
+        Riskiness +
+        Wealth_now +  Wealth_past + Wealth_fut +
+        raildist +
+        
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_orth +
+        victim_of_repression + relatives_repressed +
+        
+        Azerbaijan + Belarus + Estonia + Georgia +
+        Kazakhstan + Kyrgyztan + Mongolia +
+        Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+        guldist10 +
+
+        Trust +
+        trust_bridge +
+        trust_bond +
+        trust_vlast +
+
+        Gender + (Age) + I((Age)^2) +
+  
+        Education_low + Education_high + 
+        Educ_father_low + Educ_father_high +
+        Educ_mother_low + Educ_mother_high +
+        Riskiness +
+        Wealth_now +  Wealth_past + Wealth_fut +
+        raildist +
+        
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_orth +
+        victim_of_repression + relatives_repressed +
+        
+        Azerbaijan + Belarus + Estonia + Georgia +
+        Kazakhstan + Kyrgyztan + Mongolia +
+        Tajikistan + Ukraine + Uzbekistan},
+        data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+    ); summary(mod_prob_guldist_pres)
+  } 
+  # guldist10 x trust_bridge    # mod_prob_guldist_brid
+    {mod_prob_guldist_brid <- ivpml({Entrepreneur ~ 
+        trust_bridge +
+
+        Trust +
+        trust_bond +
+        trust_vlast +
+        trust_president +
+
+        Gender + (Age) + I((Age)^2) +
+        
+        Education_low + Education_high + 
+        Educ_father_low + Educ_father_high +
+        Educ_mother_low + Educ_mother_high +
+        Riskiness +
+        Wealth_now +  Wealth_past + Wealth_fut +
+        raildist +
+        
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_orth +
+        victim_of_repression + relatives_repressed +
+        
+        Azerbaijan + Belarus + Estonia + Georgia +
+        Kazakhstan + Kyrgyztan + Mongolia +
+        Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+        guldist10 +
+
+        Trust +
+        trust_bond +
+        trust_vlast +
+        trust_president +
+        
+        # trust_family + trust_president + trust_foreigners +
+        # trust_reggov + trust_locgov +
+        # trust_courts + trust_police + trust_finsys + trust_forinv +
+        
+        Gender + (Age) + I((Age)^2) +
+        
+        Education_low + Education_high + 
+        Educ_father_low + Educ_father_high +
+        Educ_mother_low + Educ_mother_high +
+        Riskiness +
+        Wealth_now +  Wealth_past + Wealth_fut +
+        raildist +
+        
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_orth +
+        victim_of_repression + relatives_repressed +
+        
+        Azerbaijan + Belarus + Estonia + Georgia +
+        Kazakhstan + Kyrgyztan + Mongolia +
+        Tajikistan + Ukraine + Uzbekistan},
+        data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+    ); summary(mod_prob_guldist_brid)
+  }
+  # guldist10 x trust_vlast    # mod_prob_guldist_vlas
+    {mod_prob_guldist_vlas <- ivpml({Entrepreneur ~ 
+        trust_vlast +
+        
+        Trust +
+        trust_bond +
+        trust_bridge+
+        trust_president +
+
+        Gender + (Age) + I((Age)^2) +
+        
+        Education_low + Education_high + 
+        Educ_father_low + Educ_father_high +
+        Educ_mother_low + Educ_mother_high +
+        Riskiness +
+        Wealth_now +  Wealth_past + Wealth_fut +
+        raildist +
+        
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_orth +
+        victim_of_repression + relatives_repressed +
+        
+        Azerbaijan + Belarus + Estonia + Georgia +
+        Kazakhstan + Kyrgyztan + Mongolia +
+        Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+        guldist10 +
+        
+        Trust +
+        trust_bond +
+        trust_bridge+
+        trust_president +
+        
+        Gender + (Age) + I((Age)^2) +
+        
+        Education_low + Education_high + 
+        Educ_father_low + Educ_father_high +
+        Educ_mother_low + Educ_mother_high +
+        Riskiness +
+        Wealth_now +  Wealth_past + Wealth_fut +
+        raildist +
+        
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_orth +
+        victim_of_repression + relatives_repressed +
+        
+        Azerbaijan + Belarus + Estonia + Georgia +
+        Kazakhstan + Kyrgyztan + Mongolia +
+        Tajikistan + Ukraine + Uzbekistan},
+        data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+    ); summary(mod_prob_guldist_pres)
+    }
+  # guldist10 x trust_bond    # mod_prob_guldist_bond - 
+    {
+      mod_prob_guldist_bond <- ivpml({Entrepreneur ~
+        trust_bond +
+
+        # Trust +
+        trust_bridge +
+        trust_vlast +
+        trust_president +
+
+        Gender + (Age) + I((Age)^2) +
+
+        Education_low + Education_high +
+        Educ_father_low + Educ_father_high +
+        Educ_mother_low + Educ_mother_high +
+        Riskiness +
+        Wealth_now +  Wealth_past + Wealth_fut +
+        raildist +
+
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_orth +
+          victim_of_repression + relatives_repressed +
+
+        Azerbaijan + Belarus + Estonia + Georgia +
+        Kazakhstan + Kyrgyztan + Mongolia +
+        Tajikistan + Ukraine + Uzbekistan|#=======================================#
+        guldist10 +
+
+        # Trust +
+        trust_bridge +
+        trust_vlast +
+        trust_president +
+
+        Gender + (Age) + I((Age)^2) +
+
+        Education_low + Education_high +
+        Educ_father_low + Educ_father_high +
+        Educ_mother_low + Educ_mother_high +
+        Riskiness +
+        Wealth_now +  Wealth_past + Wealth_fut +
+        raildist +
+
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_orth +
+          victim_of_repression + relatives_repressed +
+
+        Azerbaijan + Belarus + Estonia + Georgia +
+        Kazakhstan + Kyrgyztan + Mongolia +
+        Tajikistan + Ukraine + Uzbekistan},
+        data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+    ); summary(mod_prob_guldist_bond)
+    }
+  }
+
+
+mod_prob_guldist %>% AIC() %>% round()
+mod_prob_guldist_brid %>% AIC()%>% round()
+mod_prob_guldist_vlas %>% AIC()%>% round()
+mod_prob_guldist_pres %>% AIC()%>% round()
+
+
+{
+# взаимосвязь траст семье и гулага 10 км
+dplyr::select(new_opros, c('trust_family', 'gulag10km')) %>% barchart() 
+dplyr::select(new_opros, c('trust_family', 'gulag10km')) %>% group_by(trust_family) %>% table()
+dplyr::select(new_opros, c('trust_family', 'Trust', 'gulag10km')) %>% cor()
+}
+# таблицы
+mtable(
+       mod_prob_guldist,
+
+       mod_prob_guldist_brid,
+       mod_prob_guldist_bond,
+       mod_prob_guldist_vlas,
+       mod_prob_guldist_pres,
+       
+       summary.stats=c("sigma","R-squared","F","p","N")
+       # controls = c('Gender'), collapse.controls = TRUE,
+       # control.var.indicator = getOption("control.var.indicator",c("Да","No"))
+) %>% show_html()
+# try
+{  # htmlreg(mod_prob_short_guldist, mod_prob_short_gul10km,
+  #         mod_prob_short_guldist_fam, mod_prob_short_gul10km_fam)
+  # class(mod_prob_short_guldist)
+  }
+
+  {  
+    #fixing regions
+    new_opros$Region_name <- str_replace_all(new_opros$Region_name, " ", "_")
+    dplyr::select(new_opros, c('Country', 'trust_family')) %>% group_by(Country) %>% summarise(mean(trust_family))
+    # Azerbaijan + Belarus + Estonia + Georgia +
+    # Kazakhstan + Kyrgyztan + Mongolia + Russia +
+    #   Tajikistan + Ukraine + Uzbekistan
+  }
+
+
+new_opros$Entrepreneur_attempt %>% table()
+
+
+
+  
+# visual tables
+  
+  mtable(mod_prob_guldist) 
+  
+
+
+# # # # # # # # # # # # # # # # # # # # ЛОГИСТИЧЕСКАЯ ЗАВИСИСМАЯ ПЕРЕМ ####
+  new_opros$humcap_high
+# Entr_current Entr_retired Entr_failure Entr_no
+  new_opros['entr_success'] <- ifelse(new_opros$Entr_current == 1 | new_opros$Entr_retired == 1, 1, 0)
+  new_opros$entr_success %>% table()
+# через Trust  ---------------------------------------------
+  iv_Entr_current_trust <- {ivpml({Entr_current ~ 
+      Trust +
+      
+      trust_bridge +
+      trust_bond +
+      trust_vlast +
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      # Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + #relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+      guldist10 +
+      
+      # Trust +
+      
+      trust_bridge +
+      trust_bond +
+      trust_vlast +
+      trust_president + 
+            
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      # Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + #relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan},
+      data = na.omit(filter(new_opros, Entr_current == 1 | #Entr_retired == 1|
+                              Entr_no == 1))
+        , messages = TRUE# fixed = new_opros$Country %>% unique()
+  )}; summary(iv_prob1) 
+  
+  iv_Entr_retired_trust <- {ivpml({Entr_retired ~ 
+      Trust +
+      
+      trust_bridge +
+      trust_bond +
+      trust_vlast +
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + #relatives_repressed +
+
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+      guldist10 +
+      # Trust +
+      
+      trust_bridge +
+      trust_bond +
+      trust_vlast +
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +
+
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl +
+      victim_of_repression + #relatives_repressed +
+
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan},
+      data = na.omit(filter(new_opros, Entr_retired == 1 | Entr_no == 1)), messages = TRUE# fixed = new_opros$Country %>% unique()
+  )}; summary(iv_prob2)
+  
+  iv_Entr_failure_trust <- {ivpml({Entr_failure ~ 
+      Trust +
+      
+      trust_bridge +
+      trust_bond +
+      trust_vlast +
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + #relatives_repressed +
+      
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+      guldist10 +
+      # Trust +
+      
+      trust_bridge +
+      trust_bond +
+      trust_vlast +
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + #relatives_repressed +
+      
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan},
+      data = na.omit(filter(new_opros, Entr_failure == 1 | Entr_no == 1)), messages = TRUE# fixed = new_opros$Country %>% unique()
+  )}; summary(iv_prob3)  
+  
+  mtable(
+    iv_Entr_current_trust,
+    iv_Entr_retired_trust,
+    iv_Entr_failure_trust,
+    
+    summary.stats=c("sigma","R-squared","F","p","N")
+  ) %>% show_html() 
+  
+  
+  
+  
+  # через   trust_bridge ---------------------------------------------
+  iv_prob4 <- ivpml({Entr_current ~ 
+      Trust +
+      
+      trust_bond +
+      trust_bridge +
+      trust_vlast +
+      
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      # Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+      guldist10 +
+      
+      Trust +
+      
+      trust_bond +
+      # trust_bridge +
+      trust_vlast +
+      
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      # Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan},
+      data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+  ); summary(iv_prob4) 
+  iv_prob5 <- ivpml({Entr_retired ~ 
+      Trust +
+      
+      trust_bond +
+      trust_bridge +
+      trust_vlast +
+      
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+      guldist10 +
+      
+      Trust +
+      
+      trust_bond +
+      # trust_bridge +
+      trust_vlast +
+      
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan},
+      data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+  ); summary(iv_prob5)   
+  iv_prob6 <- ivpml({Entr_failure ~ 
+      Trust +
+      
+      trust_bond +
+      trust_bridge +
+      trust_vlast +
+      
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+      guldist10 +
+      
+      Trust +
+      
+      trust_bond +
+      # trust_bridge +
+      trust_vlast +
+      
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan},
+      data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+  ); summary(iv_prob6)   
+  
+  mtable(
+    iv_prob4,
+    iv_prob5,
+    iv_prob6,
+    
+    summary.stats=c("sigma","R-squared","F","p","N")
+    # controls = c('Gender'), collapse.controls = TRUE,
+    # control.var.indicator = getOption("control.var.indicator",c("Да","No"))
+  ) %>% show_html()   
+  
+  
+  
+  # через   trust_vlast ---------------------------------------------
+  iv_prob7 <- ivpml({Entr_current ~ 
+      Trust +
+      
+      trust_bond +
+      trust_bridge +
+      trust_vlast +
+      
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+      guldist10 +
+      
+      Trust +
+      
+      trust_bond +
+      trust_bridge +
+      # trust_vlast +
+      
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan},
+      data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+  ); summary(iv_prob7) 
+  iv_prob8 <- ivpml({Entr_retired ~ 
+      Trust +
+      
+      trust_bond +
+      trust_bridge +
+      trust_vlast +
+      
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+      guldist10 +
+      
+      Trust +
+      
+      trust_bond +
+      trust_bridge +
+      # trust_vlast +
+      
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan},
+      data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+  ); summary(iv_prob8)   
+  iv_prob9 <- ivpml({Entr_failure ~ 
+      Trust +
+      
+      trust_bond +
+      trust_bridge +
+      trust_vlast +
+      
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+      guldist10 +
+      
+      Trust +
+      
+      trust_bond +
+      trust_bridge +
+      # trust_vlast +
+      
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan},
+      data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+  ); summary(iv_prob9)   
+  
+  mtable(
+    iv_prob7,
+    iv_prob8,
+    iv_prob9,
+    
+    summary.stats=c("sigma","R-squared","F","p","N")
+    # controls = c('Gender'), collapse.controls = TRUE,
+    # control.var.indicator = getOption("control.var.indicator",c("Да","No"))
+  ) %>% show_html()   
+  
+  
+  
+  
+  
+  
+  # через   trust_bond ---------------------------------------------
+  iv_prob10 <- ivpml({Entr_current ~ 
+      Trust +
+      
+      trust_bond +
+      trust_bridge +
+      trust_vlast +
+      
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+      guldist10 +
+      
+      Trust +
+      
+      # trust_bond +
+      trust_bridge +
+      trust_vlast +
+      
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan},
+      data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+  ); summary(iv_prob10) 
+  iv_prob11 <- ivpml({Entr_retired ~ 
+      Trust +
+      
+      trust_bond +
+      trust_bridge +
+      trust_vlast +
+      
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+      guldist10 +
+      
+      Trust +
+      
+      # trust_bond +
+      trust_bridge +
+      trust_vlast +
+      
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan},
+      data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+  ); summary(iv_prob11)   
+  iv_prob12 <- ivpml({Entr_failure ~ 
+      Trust +
+      
+      trust_bond +
+      trust_bridge +
+      trust_vlast +
+      
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan|#=======================================# 
+      guldist10 +
+      
+      Trust +
+      
+      # trust_bond +
+      trust_bridge +
+      trust_vlast +
+      
+      trust_president +
+      
+      humcap_high +
+      Срд_trust_bridge +
+      Срд_trust_bond +
+      Срд_Entrepreneur +
+      
+      Gender + (Age) + Age_2 +
+      
+      Education_low + Education_high + 
+      Educ_father_low + Educ_father_high +
+      Educ_mother_low + Educ_mother_high +
+      Riskiness + 
+      Wealth_now +  Wealth_past + Wealth_fut +
+      raildist +   
+      
+      Rus_ethnicity +
+      Rel_budd + Rel_jwsh + Rel_orth + #Rel_musl + 
+      victim_of_repression + relatives_repressed +
+      
+      # Region_name
+      Azerbaijan + Belarus + Estonia + Georgia +
+      Kazakhstan + Kyrgyztan + Mongolia +
+      Tajikistan + Ukraine + Uzbekistan},
+      data = na.omit(new_opros), messages = TRUE# fixed = new_opros$Country %>% unique()
+  ); summary(iv_prob12)   
+  
+  mtable(
+    iv_prob10,
+    iv_prob11,
+    iv_prob12,
+    
+    summary.stats=c("sigma","R-squared","F","p","N")
+    # controls = c('Gender'), collapse.controls = TRUE,
+    # control.var.indicator = getOption("control.var.indicator",c("Да","No"))
+  ) %>% show_html()   
+  #### КРИНЖАТУРА####
+#####green graph####
+# summary(new_opros)
+# summary(lm(Trust ~ raildist, data = new_opros))
+mod_prob_trash <- ivpml(Entrepreneur ~ Trust + #guldist + 
+                          Gender + (Age) + I((Age)^2) +
+                    Education + 
+                    Riskiness +
+                    height160_170 + height170_180 + height180_190 + height190_218 +
+                    Rus_ethnicity +
+                    Rel_budd + Rel_jwsh + Rel_musl +
+                    Wealth_now +  Wealth_past + Wealth_fut +
+                    Azerbaijan + Belarus + Estonia + Georgia +
+                    Kazakhstan + Kyrgyztan + Mongolia +
+                    Tajikistan + Ukraine + Uzbekistan
+                  |
+                    # raildist + 
+                    guldist +
+                    Gender + (Age) + I((Age)^2) +
+                    Education + 
+                    Riskiness +
+                    height160_170 + height170_180 + height180_190 + height190_218 +
+                    Rus_ethnicity +
+                    Rel_budd + Rel_jwsh + Rel_musl +
+                    Wealth_now +  Wealth_past + Wealth_fut +
+                    Azerbaijan + Belarus + Estonia + Georgia +
+                    Kazakhstan + Kyrgyztan + Mongolia +
+                    Tajikistan + Ukraine + Uzbekistan
+                  ,
+                  data = new_opros); summary(mod_prob_trash)
+#by country####
+countries <- unique(new_opros$Country)
+new_opros_az <- new_opros[new_opros$Country == countries[1],]
+new_opros_be <- new_opros[new_opros$Country == countries[2],]
+new_opros_es<- new_opros[new_opros$Country == countries[3],]
+new_opros_ge <- new_opros[new_opros$Country == countries[4],]
+new_opros_ka <- new_opros[new_opros$Country == countries[5],]
+new_opros_ky<- new_opros[new_opros$Country == countries[6],]
+new_opros_mo <- new_opros[new_opros$Country == countries[7],]
+new_opros_ru<- new_opros[new_opros$Country == countries[8],]
+new_opros_ta <- new_opros[new_opros$Country == countries[9],]
+new_opros_uk <- new_opros[new_opros$Country == countries[10],]
+new_opros_uz <- new_opros[new_opros$Country == countries[11],]
+
+#az##
+{mod_prob_az <- ivpml(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+                    Education +
+                    Riskiness +
+                    # height160_170 + height170_180 + height180_190 + height190_218 +
+                    # Rus_ethnicity +
+                    # Rel_budd + Rel_jwsh + Rel_musl +
+                    Wealth_now +  Wealth_past + Wealth_fut
+                  |
+                    guldist + Gender + (Age) + I((Age)^2) +
+                    Education +
+                    Riskiness +
+                    # height160_170 + height170_180 + height180_190 + height190_218 +
+                    # Rus_ethnicity +
+                    # Rel_budd + Rel_jwsh + Rel_musl +
+                    Wealth_now +  Wealth_past + Wealth_fut
+                  ,
+                  data = new_opros_az); summary(mod_prob_az)}
+#be###
+{(new_opros_be) %>% summary()
+mod_prob_be <- ivpml(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_orth + Rel_cath + Rel_budd + #Rel_musl + #Rel_jwsh +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     |
+                       guldist + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_orth + Rel_cath + Rel_budd + #Rel_musl + #Rel_jwsh +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     ,
+                     data = new_opros_be); summary(mod_prob_be)}
+#es###
+{mod_prob_es <- ivpml(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     |
+                       guldist + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     ,
+                     data = new_opros_es); summary(mod_prob_es)}
+#ge###
+{mod_prob_ge <- ivpml(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     |
+                       guldist + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     ,
+                     data = new_opros_ge); summary(mod_prob_ge)}
+#ka###
+{mod_prob_ka <- ivpml(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     |
+                       gulag10km + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     ,
+                     data = na.omit(new_opros_ka)); summary(mod_prob_ka)}
+#ky###
+{mod_prob_ky <- ivpml(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     |
+                       gulag50km + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     ,
+                     data = new_opros_ky); summary(mod_prob_ky)}
+#mo nan###
+{mod_prob_mo <- ivpml(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     |
+                       guldist + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     ,
+                     data = new_opros_mo); summary(mod_prob_mo)}
+#ru###
+{mod_prob_ru <- ivpml(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     |
+                       guldist + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     ,
+                     data = new_opros_ru); summary(mod_prob_ru)}
+#ta###
+{mod_prob_ta <- ivpml(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     |
+                       guldist + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     ,
+                     data = new_opros_ta); summary(mod_prob_ta)}
+#uk#
+{mod_prob_uk <- ivpml(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     |
+                       guldist + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut
+                     ,
+                     data = new_opros_uk); summary(mod_prob_uk)}
+#uz#
+{mod_prob_uz <- ivpml(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+                    Education + 
+                    Riskiness +
+                    # height160_170 + height170_180 + height180_190 + height190_218 +
+                    # Rus_ethnicity +
+                    # Rel_budd + Rel_jwsh + Rel_musl +
+                    Wealth_now +  Wealth_past + Wealth_fut
+                  |
+                    guldist + Gender + (Age) + I((Age)^2) +
+                    Education + 
+                    Riskiness +
+                    # height160_170 + height170_180 + height180_190 + height190_218 +
+                    # Rus_ethnicity +
+                    # Rel_budd + Rel_jwsh + Rel_musl +
+                    Wealth_now +  Wealth_past + Wealth_fut
+                  ,
+                  data = new_opros_uz);summary(mod_prob_uz)}
+#####табличечка####
+# попытка через старгейзер
+  {library(stargazer)
+stargazer(mod_prob_short_guldist, mod_prob, type = "html", out = "comparison.html")
+class(mod_prob_short_guldist)}
+# matable общий
+stargazer(mod_prob_short_guldist %>% summary(),type = "html",
+          out = "test.html" )
+
+mtable(mod_prob_short_guldist, mod_prob,
+       signif.symbols = setNames(c(0.01, 0.05, 0.1), c('***','**','*')),
+       controls = c('Age'),
+       collapse.controls=TRUE,
+       control.var.indicator=c("Да","No")
+) 
+
+
+
+
+
+# по странам
+  {(mtable(mod_prob_az, mod_prob_be, mod_prob_es, mod_prob_ge,
+            mod_prob_ky, mod_prob_ru, mod_prob_ta, mod_prob_uk, mod_prob_uz))}
+  table(new_opros$Entrepreneur[new_opros$gulag100km == 1])
+  # урезанный
+  {mtable(mod_prob_az, mod_prob_be, mod_prob_es, mod_prob_ge)
+mtable(#mod_prob_ka,
+       mod_prob_ky, #mod_prob_mo, 
+       mod_prob_ru, mod_prob_ta, mod_prob_uk)
+mtable(mod_prob_uz)}
+####regions rus####
+table(new_opros_ru$Region_name)
+#fix region names
+new_opros_ru$Region_name <- str_replace_all(new_opros_ru$Region_name, " ", "_")
+# 
+mod_prob_ru_reg <- ivpml(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut + 
+                       Region_name
+                     |
+                       guldist + Gender + (Age) + I((Age)^2) +
+                       Education +
+                       Riskiness +
+                       # height160_170 + height170_180 + height180_190 + height190_218 +
+                       # Rus_ethnicity +
+                       # Rel_budd + Rel_jwsh + Rel_musl +
+                       Wealth_now +  Wealth_past + Wealth_fut + 
+                       Region_name
+                     ,
+                     data = new_opros_ru_reg); summary(mod_prob_ru_reg)
+
+lm(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+     Education +
+     Riskiness +
+     height160_170 + height170_180 + height180_190 + height190_218 +
+     Rus_ethnicity +
+     Rel_budd + Rel_jwsh + Rel_musl +
+     Wealth_now +  Wealth_past + Wealth_fut + Region_name, data = new_opros_ru) %>%  summary()
+####other trust models ####
+
+glm(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+     trust_family + trust_strangers + #trust_foreigners +
+     trust_president + trust_reggov + trust_locgov +
+     trust_courts + trust_police + trust_finsys + trust_forinv +
+     Education +
+     Riskiness +
+     height160_170 + height170_180 + height180_190 + height190_218 +
+     Rus_ethnicity +
+     Rel_budd + Rel_jwsh + Rel_musl +
+     Wealth_now +  Wealth_past + Wealth_fut + Country, data = new_opros, 
+    family = binomial, x = TRUE) %>%  stepAIC()
+
+glm(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+      trust_family + trust_forinv + #trust_foreigners +
+      # trust_president + trust_reggov + trust_locgov +
+      # trust_courts + trust_police + trust_finsys + trust_forinv +
+      Education +
+      Riskiness + 
+      height170_180 + height180_190 + height190_218 +
+      Rel_budd + Rel_musl +
+      Wealth_now +  Wealth_past + Wealth_fut + Country, data = new_opros, 
+    family = binomial, x = TRUE) %>% summary()
+#all trust in control
+{ivpml(Entrepreneur ~ Trust + Gender + (Age) + I((Age)^2) +
+        trust_family + trust_strangers + trust_foreigners +
+        trust_president + trust_reggov + trust_locgov +
+        trust_courts + trust_police + trust_finsys + trust_forinv +
+        Education + 
+        Riskiness +
+        height160_170 + height170_180 + height180_190 + height190_218 +
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_musl +
+        Wealth_now +  Wealth_past + Wealth_fut +
+        Country
+      |
+        guldist + Gender + (Age) + I((Age)^2) +
+        trust_family + trust_strangers + trust_foreigners +
+        trust_president + trust_reggov + trust_locgov +
+        trust_courts + trust_police + trust_finsys + trust_forinv +
+        Education + 
+        Riskiness +
+        height160_170 + height170_180 + height180_190 + height190_218 +
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_musl +
+        Wealth_now +  Wealth_past + Wealth_fut +
+        Country
+      ,
+      data = new_opros) %>%  summary()}
+#maybe transmition is through another trust
+# ---------- good iv trust
+#    'trust_locgov',
+#---------- multicor iv trust (NaN)
+# 'Wallet_ret_prob', 'trust_strangers', 'trust_president', , 'trust_neighbours'
+#---------- bad iv trust (Inf)
+# 'trust_reggov','trust_police', 'trust_finsys', 'trust_forinv', 'trust_courts', 
+#  'trust_family', 'trust_foreigners', 'trust_ministry',
+table(new_opros$Entrepreneur)
+table(new_opros_ky$trust_reggov)
+
+
+
+ivpml(Entrepreneur ~ trust_strangers +
+        Gender + (Age) + I((Age)^2) +
+        Education + 
+        Riskiness +
+        height160_170 + height170_180 + height180_190 + height190_218 +
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_musl + Rel_orth +
+        Wealth_now +  Wealth_past + Wealth_fut +
+         Country
+      |
+        gulag10km + 
+        Gender + (Age) + I((Age)^2) +
+        Education + 
+        Riskiness +
+        height160_170 + height170_180 + height180_190 + height190_218 +
+        Rus_ethnicity +
+        Rel_budd + Rel_jwsh + Rel_musl + Rel_orth +
+        Wealth_now +  Wealth_past + Wealth_fut #+
+        # Country
+      ,
+      data = new_opros, messages = TRUE) %>%  summary()
+
+
+
+
+# trust_family + trust_foreigners +
+#   trust_president + trust_reggov + trust_locgov +
+#   trust_courts + trust_police + trust_finsys + trust_forinv +
+
+
+#
+####-------------------------gmm instrumental####
+# library('gmm')
+# data(Finance)
+# r <- Finance[1:300, 1:10]
+# rm <- Finance[1:300, "rm"]
+# rf <- Finance[1:300, "rf"]
+# 
+# z <- as.matrix(r-rf)
+# t <- nrow(z)
+# zm <- rm-rf
+# h <- matrix(zm, t, 1)
+# res <- gmm(z ~ zm, x = h)
+# summary(res)
+
+####=============== MAIN MODEL?#===================####
+model_simple <- glm(Entrepreneur ~ Gender + (Age) + I((Age)^2) +
+                      guldist +
+                      Education + 
+                      Riskiness +
+                      height160_170 + height170_180 + height180_190 + height190_218 +
+                      Rus_ethnicity +
+                      Rel_budd + Rel_jwsh + Rel_musl +
+                      # CapGdp + I(CapGdp^2) +
+                      Wealth_now +  Wealth_past + Wealth_fut +
+                      Azerbaijan + Belarus + Estonia + Georgia +
+                      Kazakhstan + Kyrgyztan + Mongolia + Russia +
+                      Tajikistan + Ukraine + Uzbekistan
+                      ,
+                     data = new_opros,
+                     family = binomial, x = TRUE)
+summary(model_simple)
+
+
+
+hist(new_opros$guldist, breaks = 100)
+
+model_simple0 <- glm(Entrepreneur ~ Gender + scale(Age) + I(scale(Age)^2) +
+                       Trust + Education + 
+                      height160_170 + height170_180 + height180_190 + height190_218 +
+                      #Rus_ethnicity +
+                      #Rel_budd + Rel_jwsh + Rel_musl +
+                      Wealth_now +  Wealth_past + Wealth_fut +
+                      Azerbaijan + Belarus + Estonia + Georgia +
+                      Kazakhstan + Mongolia + Tajikistan + Ukraine + Uzbekistan,
+                    data = new_opros,
+                    family = binomial, x = TRUE)
+summary(model_simple0)
+
+cor(new_opros$Wallet_ret_prob, new_opros$Trust)
+
+
+
+#сектор проверки
+# new_opros[new_opros$gu
+####repmodel####
+
+Ord_Log_mod <- polr(as.factor(Trust) ~ Gender + scale(Age) + I(scale(Age)^2) +
+                      guldist + #CapGdp + #LONG + LAT +
+                      height160_170 + height170_180 + height180_190 + height190_218 +
+                      Rus_ethnicity + Education + 
+                      Rel_budd + Rel_jwsh + Rel_musl +
+                      Wealth_now +  Wealth_past + Wealth_fut +
+                      Azerbaijan + Belarus + Estonia + Georgia +
+                      Kazakhstan + Mongolia + Tajikistan + Ukraine + Uzbekistan,
+                    data = new_opros, method = 'logistic')
+summary(Ord_Log_mod)
+mtable(Ord_Log_mod)
+lm_mod <- lm(Trust ~ #Gender + scale(Age) + I(scale(Age)^2) +
+               guldist + CapGdp +# LONG + LAT +
+               #height160_170 + height170_180 + height180_190 + height190_218 +
+               #Rus_ethnicity +
+               #Rel_budd + Rel_jwsh + Rel_musl +
+               #Wealth_now +  Wealth_past + Wealth_fut +
+               Azerbaijan + Belarus + Estonia + Georgia +
+               Kazakhstan + Mongolia + Tajikistan + Ukraine + Uzbekistan,
+             data = new_opros)
+summary(lm_mod)
+Trust_fit <- Ord_Log_mod$fitted.values
+# Trust_fit
+# predict(Ord_Log_mod)
+Trust_fit <- predict(lm_mod)
+length(new_opros)
+####=============== ADDITIONAL STUFF================####
+  #spatreg####
+  library(spatialreg )
+  sp_data <- function(name) {
+    
+    name <- name[1]
+    raster::extension(name) <- ".rds"
+    fn <- system.file(file.path("rds", name), package="rspatial")
+    if (!(file.exists(fn))) {
+      stop(paste(name, "is not a valid data set name."))
+    }
+    readRDS(fn)
+    
+  }
+  # remotes::install_github("rspatial/rspatial", force = TRUE)
+  library(rspatial)
+  library(spData)
+  library(spdep)
+  # h <- sp_data('houses2000')
+  # hh <- aggregate(h, "County")
+  nb <- poly2nb(sps)
+  plot(hh)
+  plot(nb, coordinates(hh), col='red', lwd=2, add=TRUE)
+  
+  table(new_opros$Region_name)
+  spreg_opros <- new_opros[,c('Region_name',
+                              'LONG', 'LAT',
+                              'Gender', 'Age', 'Height', 'Rus_ethnicity', 'Religion',
+                              'Education', 'Marriage',
+                              'Entrepreneur', 'Riskiness',
+                              'Educ_father', 'Educ_mother',
+                              'Wealth_now', 'Wealth_past', 'Wealth_fut',
+                              'Trust', 'Wallet_ret_prob',
+                              'guldist')]
+  coordinates(spreg_opros) <-~ LONG + LAT
+  ps <- Polygons(list(Polygon(spreg_opros)),1)
+  sps = SpatialPolygons(list(ps))
+  plot(sps)
+  
+  library(sp)
+  hh <- sp::aggregate(spreg_opros, 'Region_name')
+  
+  #### missing gulags####
+  # devtools::install_github("chiouey/mapquestr")
+  # missing <- gulags1[is.na(gulags1$LONG) == TRUE,]
+  # locat <- missing$ADDRESS[1]
+  # sp.gulags
+  # testloc <- sp.gulags$ADDRESS[1]
+  # 
+  # library(mapquestr)
+  # library(tidyverse)
+  # location = '1313 Disneyland Dr, Anaheim, CA 92802, United States'
+  # geocode_mapquest(testloc, key = '8czQB2TnDMZW6YfVYEaC6paRAGT20kMy') %>% as.data.frame()
+  
+  #  ANOTHER SOLUTION
+  # address = location[i] + ', Mumbai, India'
+  # geolocator = Nominatim(user_agent="ny_explorer")
+  # loc = geolocator.geocode(address)
+  
+  #### SDPDmod####
+  library('SDPDmod')
+  library('geodist')
+  class(new_opros$LAT)
+  
+  
+  
+  
+  find_xy_cols(gulag2)
+  
+  gulag2 <- gulags1[is.na(gulags1$LONG) == FALSE,] %>% rename('longitude'='LONG',
+                                                              'latitude' ='LAT')
+  
+  gulag2$latitude
+  
+  D <- geodist(new_opros, cbind(gulag2$longitude, gulag2$latitude), 
+               measure = 'geodesic')
+  gulag_distmat <- geodist(cbind(gulag2$longitude, gulag2$latitude), 
+                           measure = 'geodesic')
+  
+  W_giant <- DistWMat(Dist_matrix)
+  W_giant_norm <- rownor(W_giant)
+  
+  
+  new_opros['time'] = rep(2016, 16560)
+  isrownor()
+  res1<-blmpSDPD(formula = Entrepreneur ~ 
+                   guldist +
+                   Education + 
+                   Riskiness 
+                 , data = new_opros, W = W_giant,
+                 index = c('ID','time'),
+                 model = list("ols","sar","sdm","sem","sdem","slx"), 
+                 #effect = "individual"
+  )
+  
+  
+  
+  #### spatialreg  ####
+  # library(spatialreg)
+  # 
+  # neib <- dnearneigh(coordinates(sp.opros), 0, 10, longlat = TRUE)
+  # 
+  # fit.lag<-lagsarlm(matrix(new_opros$Entrepreneur) ~ Gender + (Age) + ((Age)^2) +
+  #                     guldist +
+  #                     Education + 
+  #                     Riskiness +
+  #                     height160_170 + height170_180 + height180_190 + height190_218 +
+  #                     Rus_ethnicity +
+  #                     Rel_budd + Rel_jwsh + Rel_musl +
+  #                     CapGdp +
+  #                     Wealth_now +  Wealth_past + Wealth_fut
+  #                   + Azerbaijan + Belarus + Estonia + Georgia +
+  #                     Kazakhstan + Kyrgyztan + Mongolia + Russia +
+  #                     Tajikistan + Ukraine + Uzbekistan,  
+  #                   data = new_opros, zero.policy = FALSE,
+  #                   listw = nb2listw(neib, style="W")
+  #                     )
+  
+  # а вариация есть? Иванов -------------------------------------------------
+  # dplyr::select(new_opros, c('Country', 'Entrepreneur')) %>% group_by(Country)
+  # 
+  # new_opros[new_opros$gulag10km == 1,]$Entrepreneur %>% mean()
+  # 
+  # opros10_50 <- new_opros[new_opros$gulag10km == 0,]
+  # opros10_50[opros10_50$gulag50km == 1,]$Entrepreneur %>% mean()
+  # 
+  # opros50_100 <- new_opros[new_opros$gulag50km == 0,]
+  # opros50_100[opros50_100$gulag100km == 1,]$Entrepreneur %>% mean()
+  # 
+  # table <- CreateTableOne(vars = c('gulag10km', 'Entrepreneur'), 
+  #                         strata = "gulag10km", data = new_opros)
+  # print(table)
+  
